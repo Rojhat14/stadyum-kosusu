@@ -81,6 +81,7 @@ const CONFIG = {
     enabled: true, bridge: true, browserFallback: true, volume: 1, readNames: true,
     maxQueue: 3, statusEverySeconds: 16, inviteEverySeconds: 35, greetEverySeconds: 25
   },
+  camera: { shotSeconds: 8 },  // kamera açısı kaç saniyede bir değişir
   render: { hiDpi: true, maxScale: 2, max3DScale: 1.5, maxFps: 60 },   // max3DScale: 3D sahne çözünürlük çarpanı (kasarsa 1)
   audio: { enabled: true, volume: 0.5, cheers: 0.45 },
   spam: { chatCooldownMs: 3000, maxQueue: 400, eventsPerFrame: 10, maxParticles: 500 },
@@ -366,7 +367,7 @@ function newRace() {
   const waiting = Array.from(G.next.values()); G.next.clear();
   for (const e of waiting) addRunner(e, true);
   if (waiting.length) toast({ kind: 'group', names: waiting.map(e => e.name), title: '+' + waiting.length + ' YARIŞÇI HAZIR!' });
-  SPEECH.say('Yarış ' + G.raceNo + ' için piste çıkıyoruz! Katılmak için yorum yaz ya da ekrana dokun!', 3);
+  SPEECH.say('Yarış ' + G.raceNo + ' için piste çıkıyoruz! Katılmak için yoruma katıl yaz!', 3);
 }
 function addRunner(e, silent) {
   if (G.runners.has(e.key)) return G.runners.get(e.key);
@@ -389,6 +390,7 @@ function addRunner(e, silent) {
   G.runners.set(e.key, r); G.list.push(r);
   if (!silent) {
     toast({ kind: 'join', name: e.name, shirt: r.shirt, late: G.phase === 'race' });
+    camEvent('focus', r.key, 3, 1);
     G.joinBuf.push(e.raw); if (!G.joinFlushAt) G.joinFlushAt = G.t + 3;
     SFX.join();
   }
@@ -442,7 +444,7 @@ function processEvent(e) {
   if (e.type === 'member') {
     if ((P === 'lobby' || P === 'race') && !G.runners.has(e.key) && G.t - G.lastGreet > CONFIG.speech.greetEverySeconds) {
       G.lastGreet = G.t;
-      SPEECH.say('Hoş geldin ' + speakName(e.raw) + '! Yarışa katılmak için yorum yaz ya da ekrana dokun!', 1, 'greet', CONFIG.speech.greetEverySeconds);
+      SPEECH.say('Hoş geldin ' + speakName(e.raw) + '! Yarışa katılmak için yoruma katıl yaz!', 1, 'greet', CONFIG.speech.greetEverySeconds);
     }
     return;
   }
@@ -468,9 +470,14 @@ function processEvent(e) {
       // hediye: küçük ve sınırlı yardım; tutar gösterilmez, sadece teşekkür edilir
       const d = Math.max(1, e.diamonds);
       boost(r, Math.min(M.giftMax, M.giftPerDiamond * Math.pow(d, M.giftExponent) * Math.min(e.count, 10)));
-      ticker('💛 Teşekkürler ' + e.name + '!');
-      SFX.thanks();
-      SPEECH.say('Teşekkürler ' + speakName(e.raw) + '!', 1, 'thanks', 8);
+      // aynı kişinin seri hediyesi 4 sn içinde tek kart/anons
+      if (G.t - (r.lastGiftShown || -99) > 4) {
+        r.lastGiftShown = G.t;
+        toast({ kind: 'gift', name: e.name, shirt: r.shirt });
+        SFX.thanks();
+        SPEECH.say(speakName(e.raw) + ' hediye gönderdi! Çok teşekkürler!', 2, 'gift', 3);
+        camEvent('focus', r.key, 3.5, 2);
+      }
       for (let i = 0; i < 14; i++) particle({ star: true, wx: r.x, lane: r.lane, dx: rand(-30, 30), dy: rand(-110, -40), vx: rand(-60, 60), vy: rand(-80, -20), life: rand(0.6, 1.1), color: pick(['#ffe27a', '#fff3b0']) });
       break;
     }
@@ -543,8 +550,8 @@ function update(dt) {
   }
   if (P === 'lobby') {
     const n = G.list.length;
-    if (n >= R.minPlayers && !G.lobbyEnd) { G.lobbyEnd = G.t + R.countdownSeconds; SPEECH.say(n + ' yarışçı hazır! Bir dakika sonra start! Katılmak için yorum yaz ya da ekrana dokun!', 2); }
-    if (!G.lobbyEnd && G.t - G.lastInvite > CONFIG.speech.inviteEverySeconds) { G.lastInvite = G.t; SPEECH.say('Yarışa katılmak için yorum yaz ya da ekrana dokun! İki kişi olunca geri sayım başlar.', 1); }
+    if (n >= R.minPlayers && !G.lobbyEnd) { G.lobbyEnd = G.t + R.countdownSeconds; SPEECH.say(n + ' yarışçı hazır! Bir dakika sonra start! Katılmak için yoruma katıl yaz!', 2); }
+    if (!G.lobbyEnd && G.t - G.lastInvite > CONFIG.speech.inviteEverySeconds) { G.lastInvite = G.t; SPEECH.say('Yarışa katılmak için yoruma katıl yaz! İki kişi olunca geri sayım başlar.', 1); }
     if (G.lobbyEnd) {
       const left = G.lobbyEnd - G.t;
       if (left <= 30 && !G.milestones.has('l30')) { G.milestones.add('l30'); SPEECH.say('Starta otuz saniye! Hâlâ katılabilirsin!', 2); }
@@ -577,6 +584,7 @@ function update(dt) {
         const a = active(), c = a.filter(r => r.finishT == null && G.t - r.lastAct > E.idleSeconds);
         const tgt = a.length > E.minRemaining && c.length ? c.reduce((m, x) => (x.x < m.x ? x : m)) : null;
         for (const r of a) r.warn = r === tgt;
+        if (tgt) camEvent('focus', tgt.key, 4.8, 3);
       }
       if (G.t >= G.nextElim) eliminate();
     }
@@ -900,22 +908,70 @@ function update3D(dt) {
 }
 const camPos = V3(-15, 7.5, TRACK_W + 13), camLook = V3(-1, 0.2, TRACK_W * 0.4);
 const _cp = V3(), _cl = V3();
-function updateCamera3D(dt) {
-  const P = G.phase, a = active();
-  if (P === 'results' && G.winner) {
-    const w = G.winner, x = runnerX(w), z = laneZ(w.lane, w.off);
-    _cp.set(x + 3.2, 2.3, z + 3.4); _cl.set(x, 1.6, z);
-  } else if ((P === 'race' || P === 'finish') && a.length) {
-    const top = a.slice().sort((p, q) => q.x - p.x).slice(0, 4);
-    const fx = top.reduce((s, r) => s + r.x, 0) / top.length;
-    const spread = clamp(top.length ? top[0].x - a.reduce((m, r) => Math.min(m, r.x), 1e9) : 0, 0, 60);
-    _cp.set(fx - 17 - spread * 0.25, 9.5 + spread * 0.1, TRACK_W + 15 + spread * 0.2); _cl.set(fx + 8, 1.2, TRACK_W * 0.32);
-  } else {
-    const back = a.length ? Math.max(...a.map(r => r.slot)) * 1.3 : 0;
-    _cp.set(-13 - back * 0.5, 6.5, TRACK_W + 12 + back * 0.4); _cl.set(0 - back * 0.4, 2.6, TRACK_W * 0.35);
+/* Kamera rejisi: 8 sn'de bir açı değişir; olaylarda (katılım, hediye, eleme) kısa yakın çekim.
+   Uzak hedefe geçerken boş pistin üstünden kaymak yerine doğrudan kesme yapılır. */
+const SHOTS_RACE = ['pack', 'side', 'front', 'rear', 'overhead'];
+const SHOTS_LOBBY = ['lobbySide', 'lobbyFront'];
+G.shot = { mode: 'lobbySide', until: 0, i: 0 };
+G.camOverride = null;
+function camEvent(mode, key, dur, prio) {
+  const o = G.camOverride;
+  if (o && G.t < o.until && o.prio > prio) return;
+  if (o && G.t < o.until && o.prio === prio && G.t - o.start < 1.5) return;   // çok sık geçişi önle
+  G.camOverride = { mode, key, until: G.t + dur, prio, start: G.t };
+}
+function shotPose(mode, key, out) {
+  const a = active(), P = G.phase;
+  const byX = a.slice().sort((p, q) => q.x - p.x);
+  const lead = byX[0];
+  if (mode === 'focus') {
+    const r = G.runners.get(key); if (!r) return false;
+    const x = runnerX(r), z = laneZ(r.lane, r.off);
+    out[0].set(x + 5, 2.5, clamp(z + 4, 0.6, TRACK_W - 0.4)); out[1].set(x - 0.5, 1.0, z); return true;
   }
-  const k = 1 - Math.exp(-dt * (P === 'results' ? 4 : 2.6));
-  camPos.lerp(_cp, k); camLook.lerp(_cl, k);
+  if (mode === 'winner' && G.winner) {
+    const w = G.winner, x = runnerX(w), z = laneZ(w.lane, w.off);
+    out[0].set(x + 3.2, 2.3, z + 3.4); out[1].set(x, 1.6, z); return true;
+  }
+  if (P === 'lobby' || !lead) {
+    const back = a.length ? Math.max(...a.map(r => r.slot)) * 1.3 : 0;
+    if (mode === 'lobbyFront') { out[0].set(9, 3.2, TRACK_W * 0.5 + 2); out[1].set(-2 - back * 0.4, 1.0, TRACK_W * 0.5); }
+    else { out[0].set(-11 - back * 0.5, 5.5, TRACK_W + 10 + back * 0.4); out[1].set(-back * 0.4, 1.8, TRACK_W * 0.4); }
+    return true;
+  }
+  const top = byX.slice(0, 3), fx = top.reduce((s2, r) => s2 + r.x, 0) / top.length;
+  const lz = laneZ(lead.lane, lead.off);
+  if (mode === 'side') { out[0].set(lead.x + 1.5, 2.6, TRACK_W + 7); out[1].set(lead.x + 1, 1.0, lz); }
+  else if (mode === 'front') { out[0].set(lead.x + 10, 2.3, clamp(lz + 2.2, 0.6, TRACK_W - 0.4)); out[1].set(lead.x - 2, 1.1, lz); }
+  else if (mode === 'rear') {
+    const rr = byX[byX.length - 1], rz = laneZ(rr.lane, rr.off);
+    out[0].set(rr.x - 7, 4, TRACK_W + 7.5); out[1].set(rr.x + 5, 0.9, rz);
+  } else if (mode === 'overhead') {
+    const mid = byX[Math.floor(byX.length / 2)].x;
+    out[0].set(mid - 13, 11, TRACK_W + 13); out[1].set(mid + 6, 0.8, TRACK_W * 0.4);
+  } else { out[0].set(fx - 12, 7, TRACK_W + 11); out[1].set(fx + 6, 1.0, TRACK_W * 0.35); }
+  return true;
+}
+function updateCamera3D(dt) {
+  const P = G.phase, o = G.camOverride;
+  let mode, key = null;
+  if (P === 'results' && G.winner) mode = 'winner';
+  else if (o && G.t < o.until && (o.mode !== 'focus' || G.runners.has(o.key))) { mode = o.mode; key = o.key; }
+  else {
+    G.camOverride = null;
+    const list = P === 'lobby' ? SHOTS_LOBBY : SHOTS_RACE;
+    if (G.t >= G.shot.until || !list.includes(G.shot.mode)) {
+      G.shot.i = (G.shot.i + 1) % list.length;
+      G.shot.mode = list[G.shot.i]; G.shot.until = G.t + CONFIG.camera.shotSeconds;
+    }
+    mode = G.shot.mode;
+    if (P === 'finish') mode = 'front';
+  }
+  if (!shotPose(mode, key, [_cp, _cl])) shotPose('pack', null, [_cp, _cl]);
+  const changed = mode + key !== G.lastShotId;
+  G.lastShotId = mode + key;
+  if (changed && _cl.distanceTo(camLook) > 20) { camPos.copy(_cp); camLook.copy(_cl); }      // doğrudan kesme
+  else { const k = 1 - Math.exp(-dt * (changed ? 3.5 : 5)); camPos.lerp(_cp, k); camLook.lerp(_cl, k); }
   camera.position.copy(camPos); camera.lookAt(camLook);
 }
 const _pv = V3();
@@ -938,11 +994,14 @@ function drawTags() {
   const [a, rk] = rankOf();
   const show = new Set(a.slice(0, 14).map(r => r.key));
   for (const r of a) if (r.warn || G.t - r.joinedAt < 5) show.add(r.key);
+  if (G.camOverride && G.camOverride.key) show.add(G.camOverride.key);
   const items = [];
   for (const r of a) {
     if (!show.has(r.key)) continue;
-    const sp = project(runnerX(r), 2.2, laneZ(r.lane, r.off));
-    if (!sp || sp[0] < -60 || sp[0] > W + 60 || sp[1] < SAFE_TOP + 60) continue;
+    const sp = project(runnerX(r), 1.9, laneZ(r.lane, r.off));
+    if (!sp) continue;
+    sp[1] -= 26;
+    if (sp[0] < -60 || sp[0] > W + 60 || sp[1] < SAFE_TOP + 60) continue;
     items.push([r, sp]);
   }
   items.sort((p, q) => p[1][1] - q[1][1]);
@@ -967,7 +1026,7 @@ function drawTopBar() {
   panel(834, y, 230, h, 0.85); txt('MESAFE', 870, y + h / 2 + 1, 19, '#cfd6e6', 'left', { stroke: false });
   txt(fmt(left) + ' M', 1050, y + h / 2 + 1, 28, '#ffd56b', 'right', { stroke: false });
   panel(254, y, 572, h, 0.85);
-  let msg = G.tick ? G.tick.text : G.phase === 'lobby' ? '💬 Yorum yaz ya da ❤️ dokun → yarışa katıl!'
+  let msg = G.tick ? G.tick.text : G.phase === 'lobby' ? '💬 Katılmak için yoruma "katıl" yaz!'
     : G.phase === 'race' ? (l ? '🏃 Lider: ' + l.name + ' · ⏱️ Eleme ' + Math.max(0, Math.ceil(G.nextElim - G.t)) + ' sn' : '') : '🏆 Yarış bitti!';
   setFont(22); txt(fitText(msg, 540), 540, y + h / 2 + 1, 22, '#ffffff', 'center', { stroke: false });
 }
@@ -1031,17 +1090,18 @@ function drawCard() {
   ctx.translate(540, y + h / 2); ctx.scale(sc, sc); ctx.translate(-540, -(y + h / 2));
   const out = t.kind === 'out';
   ctx.fillStyle = out ? 'rgba(70,10,10,0.92)' : 'rgba(18,24,48,0.9)'; rrPath(ctx, x, y, w, h, 18); ctx.fill();
-  ctx.strokeStyle = out ? '#ff5a4f' : '#ffd56b'; ctx.lineWidth = 3; ctx.stroke();
+  ctx.strokeStyle = out ? '#ff5a4f' : t.kind === 'gift' ? '#ffb300' : '#ffd56b'; ctx.lineWidth = t.kind === 'gift' ? 5 : 3; ctx.stroke();
   if (t.kind === 'group') {
     txt(t.title, 540, y + 34, 32, '#ffd56b', 'center', { lw: 5 });
     setFont(23); txt(fitText(t.names.join(', '), w - 50), 540, y + 74, 23, '#ffffff', 'center', { stroke: false });
   } else {
     ctx.fillStyle = t.shirt; ctx.beginPath(); ctx.arc(x + 56, y + h / 2, 34, 0, TAU); ctx.fill();
     ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.stroke();
-    txt(out ? '❌' : '🏃', x + 56, y + h / 2 + 2, 32, '#fff', 'center', { stroke: false });
-    txt(out ? 'ELENDİ' : t.late ? 'YARIŞA KATILDI · arkadan geliyor' : 'YARIŞÇIMIZI TANIYALIM', x + 104, y + 26, 18, out ? '#ffb3ad' : '#ffd56b', 'left', { stroke: false });
+    txt(out ? '❌' : t.kind === 'gift' ? '🎁' : '🏃', x + 56, y + h / 2 + 2, 32, '#fff', 'center', { stroke: false });
+    const gift = t.kind === 'gift';
+    txt(out ? 'ELENDİ' : gift ? '🎁 HEDİYE GÖNDERDİ' : t.late ? 'YARIŞA KATILDI · arkadan geliyor' : 'YARIŞÇIMIZI TANIYALIM', x + 104, y + 26, 18, out ? '#ffb3ad' : '#ffd56b', 'left', { stroke: false });
     setFont(38); txt(fitText(t.name, w - 140), x + 104, y + 62, 38, '#ffffff', 'left', { lw: 5 });
-    txt(out ? 'Sıradaki yarışta tekrar dene!' : 'Start\'a hazır!', x + w - 20, y + 86, 18, '#cfd6e6', 'right', { stroke: false });
+    txt(out ? 'Sıradaki yarışta tekrar dene!' : gift ? 'Çok teşekkürler! 💛' : 'Start\'a hazır!', x + w - 20, y + 86, 18, gift ? '#ffe9a8' : '#cfd6e6', 'right', { stroke: false });
   }
   ctx.restore();
 }
@@ -1059,7 +1119,7 @@ function drawCountdown() {
     txt('YARIŞA KATIL!', 540, 1000, 80, '#ffd23d', 'center', { font: TFONT, lw: 12 });
     txt(n + '/' + CONFIG.race.minPlayers + ' yarışçı · iki kişi olunca 60 sn geri sayım', 540, 1090, 30, '#ffffff', 'center', { lw: 6 });
   }
-  txt('Katılmak için yorum yaz ya da ekrana dokun!', 540, 1186, 28, '#ffffff', 'center', { lw: 6 });
+  txt('Katılmak için yoruma "katıl" yaz!', 540, 1186, 30, '#ffffff', 'center', { lw: 6 });
 }
 function drawProgress() {
   if (G.phase === 'lobby') return;
@@ -1087,7 +1147,7 @@ function drawResults3() {
   const medals = ['🥇', '🥈', '🥉'];
   G.podium.forEach((r, i) => { setFont(30); txt(medals[i] + ' ' + fitText(r.name, 560), 540, 1090 + i * 44, 30, '#ffffff', 'center', { stroke: false }); });
   const left = Math.max(0, Math.ceil(CONFIG.race.resultsSeconds - G.phaseTime));
-  txt('Yeni yarış ' + left + ' sn sonra · Katılmak için yorum yaz!', 540, 1250, 28, '#bfffb0', 'center', { lw: 6 });
+  txt('Yeni yarış ' + left + ' sn sonra · Katılmak için yoruma "katıl" yaz!', 540, 1250, 28, '#bfffb0', 'center', { lw: 6 });
   ctx.restore();
 }
 function drawFx() {
@@ -1101,7 +1161,7 @@ function drawFx() {
 }
 function drawHint() {
   if (G.phase === 'results') return;
-  setFont(20); const t = '💬 Yorum yaz → yarışa katıl! · ⏱️ 10 sn\'de bir eleme';
+  setFont(20); const t = '💬 Yoruma "katıl" yaz → yarışa gir! · ⏱️ 10 sn\'de bir eleme';
   const tw = ctx.measureText(t).width;
   ctx.fillStyle = 'rgba(220,40,80,0.9)'; rrPath(ctx, 1064 - tw - 30, 1270, tw + 30, 34, 17); ctx.fill();
   txt(t, 1064 - 15, 1287, 20, '#ffffff', 'right', { stroke: false });
