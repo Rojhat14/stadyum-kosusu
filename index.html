@@ -82,7 +82,8 @@ const CONFIG = {
     enabled: true, bridge: true, browserFallback: true, volume: 1, readNames: true,
     maxQueue: 3, statusEverySeconds: 16, inviteEverySeconds: 35, greetEverySeconds: 25
   },
-  camera: { shotSeconds: 8 },  // kamera açısı kaç saniyede bir değişir
+  camera: { shotSeconds: 8 },
+  giftTip: { enabled: true, everySeconds: 60 },   // hediye bilgisinin ne sıklıkla görüneceği (sürekli göstermek TikTok cezası riskini artırır)  // kamera açısı kaç saniyede bir değişir
   render: { hiDpi: true, maxScale: 2, max3DScale: 1.5, maxFps: 60 },   // max3DScale: 3D sahne çözünürlük çarpanı (kasarsa 1)
   audio: { enabled: true, volume: 0.5, cheers: 0.45 },
   spam: { chatCooldownMs: 3000, maxQueue: 400, eventsPerFrame: 10, maxParticles: 500 },
@@ -1249,7 +1250,10 @@ const HINTS = [
 ];
 function drawHint() {
   if (G.phase === 'results') return;
-  const i = Math.floor(G.t / 4) % HINTS.length, [t, col] = HINTS[i];
+  // hediye bilgisi seyrek gösterilir (dakikada bir 4 sn) – sürekli hediye çağrısı TikTok kurallarına takılabilir
+  const giftTip = CONFIG.giftTip.enabled && (G.t % CONFIG.giftTip.everySeconds) < 4;
+  const i = Math.floor(G.t / 4) % HINTS.length;
+  const [t, col] = giftTip ? ['🎁 Hediye gönderenin koşucusu 🚀 SPRİNT atar', '#d99a00'] : HINTS[i];
   const y = 1268, h = 46;
   ctx.fillStyle = 'rgba(10,14,24,0.88)'; rrPath(ctx, 16, y, 1048, h, 23); ctx.fill();
   ctx.fillStyle = col; rrPath(ctx, 16, y, 250, h, 23); ctx.fill();
