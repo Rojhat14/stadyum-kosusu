@@ -467,8 +467,8 @@ function processEvent(e) {
       boost(r, M.chat);
       if (/nas[ıi]l|h[ıi]zlan|ilerle|ne yap|oynan|kural|ne i[şs]e/i.test(e.text) && G.t - (r.lastHelp || -99) > 30) {
         r.lastHelp = G.t;
-        ticker('❤️ ' + e.name + ': ekrana dokun → hızlanırsın! 💬 Yorum da hız verir');
-        SPEECH.say(speakName(e.raw) + ', ekrana dokun! Her beğeni seni hızlandırır, yorum yazmak da hız verir. Durursan elenirsin!', 2, 'help', 6);
+        ticker('❤️ ' + e.name + ': ekrana dokun → hızlanırsın!');
+        SPEECH.say(speakName(e.raw) + ', ekrana dokun! Her beğeni seni hızlandırır. Durursan elenirsin!', 2, 'help', 6);
       }
       break;
     }
@@ -1244,7 +1244,6 @@ function drawFx() {
 }
 const HINTS = [
   ['❤️ Ekrana dokun → koşucun HIZLANIR', '#ff5a7a'],
-  ['💬 Her yorum → +' + CONFIG.meters.chat + ' metre', '#4f8fe6'],
   ['💬 Yoruma "katıl" yaz → yarışa gir', '#2f9a4f'],
   ['⏱️ Dokunmayı bırakan en arkadaki ' + CONFIG.elimination.everySeconds + ' sn\'de elenir', '#d9642a']
 ];
