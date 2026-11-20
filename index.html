@@ -84,7 +84,7 @@ const CONFIG = {
   },
   camera: { shotSeconds: 8 },
   giftTip: { enabled: false, everySeconds: 60 },  // seyrek hediye bilgisi (menü açıkken gerek yok)
-  giftMenu: { enabled: true },                     // üstteki hediye menüsü – TikTok uyarısı gelirse false yapın  // kamera açısı kaç saniyede bir değişir
+  giftMenu: { enabled: false },                     // üstteki hediye menüsü – TikTok uyarısı gelirse false yapın  // kamera açısı kaç saniyede bir değişir
   render: { hiDpi: true, maxScale: 2, max3DScale: 1.5, maxFps: 60 },   // max3DScale: 3D sahne çözünürlük çarpanı (kasarsa 1)
   audio: { enabled: true, volume: 0.5, cheers: 0.45 },
   spam: { chatCooldownMs: 3000, maxQueue: 400, eventsPerFrame: 10, maxParticles: 500 },
@@ -497,7 +497,7 @@ function processEvent(e) {
         r.lastGiftShown = G.t;
         toast({ kind: 'gift', name: e.name, shirt: r.shirt, m: Math.round(gm) });
         SFX.thanks();
-        SPEECH.say(speakName(e.raw) + ' hediye gönderdi ve sprint atıyor! Çok teşekkürler!', 2, 'gift', 3);
+        SPEECH.say(speakName(e.raw) + ', çok teşekkürler!', 2, 'gift', 3);
         camEvent('focus', r.key, 3.5, 2);
       }
       for (let i = 0; i < 14; i++) particle({ star: true, wx: r.x, lane: r.lane, dx: rand(-30, 30), dy: rand(-110, -40), vx: rand(-60, 60), vy: rand(-80, -20), life: rand(0.6, 1.1), color: pick(['#ffe27a', '#fff3b0']) });
