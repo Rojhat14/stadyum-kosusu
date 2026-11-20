@@ -52,10 +52,11 @@ const CONFIG = {
     baseSpeed: 2,                // herkesin koşu temposu (m/sn)
     maxSpeed: 12,                // en yüksek hız (m/sn) – 1000 m en az ~85 sn
     releaseRate: 2.5,            // biriken hızlanmanın harcanma hızı
-    lateJoinUntil: 0.5,          // lider bu orana gelene kadar yarış sırasında katılınabilir
+    lateJoinUntil: 1.01,         // yarışın her anında katılınabilir (geç gelen en arkadan başlar)
     finishGraceSeconds: 3,       // kazanan çizgiyi geçtikten sonra yarışın bitmesi
     resultsSeconds: 15,          // kutlama ekranı süresi
-    maxRunners: 50               // pistte aynı anda en fazla yarışçı (fazlası sıradaki yarışa)
+    maxRunners: 2000,            // pratikte sınırsız; kameradan uzaktakiler çizilmez (performans)
+    drawRadius: 90               // kameranın baktığı yere bu kadar metreden uzak koşucular çizilmez
   },
   elimination: {
     everySeconds: 10,            // her 10 saniyede bir eleme
@@ -355,6 +356,7 @@ const G = {
   joinBuf: [], joinFlushAt: 0, stepAcc: 0, flash: 0, lastBeep: -1
 };
 const queue = [], pendingLikes = new Map();
+G.recentJoins = [];
 const active = () => G.list.filter(r => !r.out);
 function leader() { let b = null; for (const r of G.list) if (!r.out && (!b || r.x > b.x)) b = r; return b; }
 
@@ -363,7 +365,7 @@ function newRace() {
   G.runners.clear(); G.list = [];
   G.phase = 'lobby'; G.phaseTime = 0; G.lobbyEnd = 0; G.nextElim = 0; G.finishAt = 0; G.winner = null; G.podium = [];
   G.leaderKey = null; G.milestones.clear(); G.likeBuckets.clear(); G.particles.length = 0; G.floaters.length = 0;
-  G.lastInvite = G.t; G.cam.lead = 0;
+  G.lastInvite = G.t; G.cam.lead = 0; G.recentJoins = [];
   const waiting = Array.from(G.next.values()); G.next.clear();
   for (const e of waiting) addRunner(e, true);
   if (waiting.length) toast({ kind: 'group', names: waiting.map(e => e.name), title: '+' + waiting.length + ' YARIŞÇI HAZIR!' });
@@ -392,6 +394,7 @@ function addRunner(e, silent) {
     toast({ kind: 'join', name: e.name, shirt: r.shirt, late: G.phase === 'race' });
     camEvent('focus', r.key, 3, 1);
     G.joinBuf.push(e.raw); if (!G.joinFlushAt) G.joinFlushAt = G.t + 3;
+    G.recentJoins.unshift({ key: e.key, name: e.name, t: G.t }); if (G.recentJoins.length > 12) G.recentJoins.pop();
     SFX.join();
   }
   return r;
@@ -448,8 +451,14 @@ function processEvent(e) {
     }
     return;
   }
+  const existed = G.runners.has(e.key);
   const r = (P === 'lobby' || P === 'race') ? ensureRunner(e) : (G.next.has(e.key) || G.runners.has(e.key) ? null : (G.next.set(e.key, e), null));
   if (!r) return;
+  if (existed && e.type === 'chat' && /kat[ıi]l/i.test(e.text) && G.t - (r.lastSeenMsg || -99) > 6) {
+    r.lastSeenMsg = G.t;
+    if (r.out) ticker('❌ ' + e.name + ' bu yarışta elendi · sıradaki yarışta tekrar katıl!');
+    else { const rank = active().sort((p, q) => q.x - p.x).indexOf(r) + 1; ticker('✅ ' + e.name + ' zaten yarışta · ' + rank + '. sırada'); camEvent('focus', r.key, 3, 1); }
+  }
   switch (e.type) {
     case 'chat': {
       const t = performance.now(), last = G.lastChat.get(e.key);
@@ -901,7 +910,10 @@ function update3D(dt) {
       m.root.position.set(runnerX(r), 0.1, laneZ(r.lane, r.off));
       continue;
     }
-    m.root.visible = true; m.root.rotation.x = 0;
+    const near = Math.abs(runnerX(r) - camLook.x) < CONFIG.race.drawRadius;
+    m.root.visible = near;
+    if (!near) continue;
+    m.root.rotation.x = 0;
     m.root.position.set(runnerX(r), 0, laneZ(r.lane, r.off));
     m.root.rotation.y = cheer ? -Math.PI / 2.4 : 0;
     poseRunner(r, m, cheer ? 'cheer' : null);
@@ -926,7 +938,8 @@ const spotSeen = [];
 function pickSpotlight() {
   const a = active().filter(r => r.finishT == null);
   if (!a.length) return null;
-  const fresh = a.filter(r => G.t - r.lastAct < 10 && !spotSeen.includes(r.key));
+  const newbie = a.filter(r => G.t - r.joinedAt < 20 && !spotSeen.includes(r.key));
+  const fresh = newbie.length ? newbie : a.filter(r => G.t - r.lastAct < 10 && !spotSeen.includes(r.key));
   const pool = fresh.length ? fresh : a.filter(r => !spotSeen.includes(r.key));
   const r = (pool.length ? pool : a).sort((p, q) => q.lastAct - p.lastAct)[0];
   spotSeen.push(r.key); if (spotSeen.length > Math.max(3, Math.floor(a.length * 0.7))) spotSeen.shift();
@@ -1139,6 +1152,16 @@ function drawCountdown() {
   }
   txt('Katılmak için yoruma "katıl" yaz!', 540, 1186, 30, '#ffffff', 'center', { lw: 6 });
 }
+function drawJoinStrip() {
+  if (G.phase === 'results' || !G.recentJoins.length) return;
+  const rank = new Map(); active().sort((p, q) => q.x - p.x).forEach((r, i) => rank.set(r.key, i + 1));
+  const items = G.recentJoins.filter(j => rank.has(j.key)).slice(0, 8).map(j => j.name + (G.phase === 'race' ? ' #' + rank.get(j.key) : ''));
+  if (!items.length) return;
+  const y = G.phase === 'lobby' ? 1238 : 1172;
+  panel(16, y - 20, 1048, 40, 0.8);
+  txt('🆕 YENİ KATILANLAR', 30, y + 1, 18, '#7ee07e', 'left', { stroke: false });
+  setFont(19); txt(fitText(items.join(' · '), 820), 230, y + 1, 19, '#ffffff', 'left', { stroke: false });
+}
 function drawProgress() {
   if (G.phase === 'lobby') return;
   const x = 110, y = 1238, w = 860, D2 = CONFIG.race.distance;
@@ -1196,6 +1219,7 @@ function render() {
   drawChampions();
   drawCard();
   drawCountdown();
+  drawJoinStrip();
   drawProgress();
   drawHint();
   drawResults3();
