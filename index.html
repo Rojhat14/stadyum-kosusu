@@ -509,6 +509,7 @@ function eliminate() {
   if (!cands.length) { ticker('✅ Herkes koşuyor, bu turda eleme yok!'); return; }
   const r = cands.reduce((m, c) => (c.x < m.x ? c : m));
   r.out = true; r.outAt = G.t;
+  G.camOverride = { mode: 'focus', key: r.key, until: G.t + 2, prio: 4, start: G.t, then: 'front' };
   toast({ kind: 'out', name: r.name, shirt: r.shirt });
   SFX.buzzer();
   SPEECH.say(speakName(r.raw) + ' elendi!', 2);
@@ -581,10 +582,11 @@ function update(dt) {
       const E = CONFIG.elimination;
       // eleme adayına son 3 saniyede uyarı
       if (G.nextElim - G.t < 3) {
+        const camNow = G.nextElim - G.t < 2;
         const a = active(), c = a.filter(r => r.finishT == null && G.t - r.lastAct > E.idleSeconds);
         const tgt = a.length > E.minRemaining && c.length ? c.reduce((m, x) => (x.x < m.x ? x : m)) : null;
         for (const r of a) r.warn = r === tgt;
-        if (tgt) camEvent('focus', tgt.key, 4.8, 3);
+        if (tgt && camNow) camEvent('focus', tgt.key, 2.4, 3);
       }
       if (G.t >= G.nextElim) eliminate();
     }
@@ -910,7 +912,7 @@ const camPos = V3(-15, 7.5, TRACK_W + 13), camLook = V3(-1, 0.2, TRACK_W * 0.4);
 const _cp = V3(), _cl = V3();
 /* Kamera rejisi: 8 sn'de bir açı değişir; olaylarda (katılım, hediye, eleme) kısa yakın çekim.
    Uzak hedefe geçerken boş pistin üstünden kaymak yerine doğrudan kesme yapılır. */
-const SHOTS_RACE = ['pack', 'side', 'front', 'rear', 'overhead'];
+const SHOTS_RACE = ['pack', 'spotlight', 'front', 'rear', 'spotlight', 'side', 'overhead', 'spotlight'];
 const SHOTS_LOBBY = ['lobbySide', 'lobbyFront'];
 G.shot = { mode: 'lobbySide', until: 0, i: 0 };
 G.camOverride = null;
@@ -920,7 +922,18 @@ function camEvent(mode, key, dur, prio) {
   if (o && G.t < o.until && o.prio === prio && G.t - o.start < 1.5) return;   // çok sık geçişi önle
   G.camOverride = { mode, key, until: G.t + dur, prio, start: G.t };
 }
+const spotSeen = [];
+function pickSpotlight() {
+  const a = active().filter(r => r.finishT == null);
+  if (!a.length) return null;
+  const fresh = a.filter(r => G.t - r.lastAct < 10 && !spotSeen.includes(r.key));
+  const pool = fresh.length ? fresh : a.filter(r => !spotSeen.includes(r.key));
+  const r = (pool.length ? pool : a).sort((p, q) => q.lastAct - p.lastAct)[0];
+  spotSeen.push(r.key); if (spotSeen.length > Math.max(3, Math.floor(a.length * 0.7))) spotSeen.shift();
+  return r.key;
+}
 function shotPose(mode, key, out) {
+  if (mode === 'spotlight') mode = 'focus';
   const a = active(), P = G.phase;
   const byX = a.slice().sort((p, q) => q.x - p.x);
   const lead = byX[0];
@@ -957,14 +970,18 @@ function updateCamera3D(dt) {
   let mode, key = null;
   if (P === 'results' && G.winner) mode = 'winner';
   else if (o && G.t < o.until && (o.mode !== 'focus' || G.runners.has(o.key))) { mode = o.mode; key = o.key; }
+  else if (o && o.then) { G.camOverride = { mode: o.then, key: null, until: G.t + 3.5, prio: 2, start: G.t }; mode = o.then; }
   else {
     G.camOverride = null;
     const list = P === 'lobby' ? SHOTS_LOBBY : SHOTS_RACE;
     if (G.t >= G.shot.until || !list.includes(G.shot.mode)) {
       G.shot.i = (G.shot.i + 1) % list.length;
       G.shot.mode = list[G.shot.i]; G.shot.until = G.t + CONFIG.camera.shotSeconds;
+      G.shot.key = G.shot.mode === 'spotlight' ? pickSpotlight() : null;
+      if (G.shot.mode === 'spotlight' && !G.shot.key) G.shot.mode = 'pack';
     }
-    mode = G.shot.mode;
+    mode = G.shot.mode; key = G.shot.key;
+    if (mode === 'spotlight' && !G.runners.has(key)) { mode = 'pack'; key = null; }
     if (P === 'finish') mode = 'front';
   }
   if (!shotPose(mode, key, [_cp, _cl])) shotPose('pack', null, [_cp, _cl]);
@@ -995,6 +1012,7 @@ function drawTags() {
   const show = new Set(a.slice(0, 14).map(r => r.key));
   for (const r of a) if (r.warn || G.t - r.joinedAt < 5) show.add(r.key);
   if (G.camOverride && G.camOverride.key) show.add(G.camOverride.key);
+  if (G.shot && G.shot.key) show.add(G.shot.key);
   const items = [];
   for (const r of a) {
     if (!show.has(r.key)) continue;
