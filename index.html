@@ -83,7 +83,8 @@ const CONFIG = {
     maxQueue: 3, statusEverySeconds: 16, inviteEverySeconds: 35, greetEverySeconds: 25
   },
   camera: { shotSeconds: 8 },
-  giftTip: { enabled: true, everySeconds: 60 },   // hediye bilgisinin ne sıklıkla görüneceği (sürekli göstermek TikTok cezası riskini artırır)  // kamera açısı kaç saniyede bir değişir
+  giftTip: { enabled: false, everySeconds: 60 },  // seyrek hediye bilgisi (menü açıkken gerek yok)
+  giftMenu: { enabled: true },                     // üstteki hediye menüsü – TikTok uyarısı gelirse false yapın  // kamera açısı kaç saniyede bir değişir
   render: { hiDpi: true, maxScale: 2, max3DScale: 1.5, maxFps: 60 },   // max3DScale: 3D sahne çözünürlük çarpanı (kasarsa 1)
   audio: { enabled: true, volume: 0.5, cheers: 0.45 },
   spam: { chatCooldownMs: 3000, maxQueue: 400, eventsPerFrame: 10, maxParticles: 500 },
@@ -1102,7 +1103,8 @@ function drawCaption2() {
 }
 function drawRanking() {
   if (G.phase === 'results') return;
-  const x = 16, y = SAFE_TOP + 132, w = 470, rows = 10, rh = 29, h = 46 + rows * rh;
+  const y0 = SAFE_TOP + 132 + (CONFIG.giftMenu.enabled ? 74 : 0), rows = CONFIG.giftMenu.enabled ? 8 : 10;
+  const x = 16, y = y0, w = 470, rh = 29, h = 46 + rows * rh;
   panel(x, y, w, h, 0.7);
   const [a] = rankOf();
   txt('SIRALAMA', x + 16, y + 22, 21, '#ffd56b', 'left', { stroke: false });
@@ -1119,9 +1121,29 @@ function drawRanking() {
     txt(info, x + w - 14, ry, 18, r.warn ? '#ff8a80' : '#cfd6e6', 'right', { stroke: false });
   });
 }
+// Hediye menüsü: gerçek etkiler (oyundaki sprint metreleriyle aynı)
+function giftMeters(d) { const M = CONFIG.meters; return Math.round(Math.min(M.giftMax, M.giftPerDiamond * Math.pow(d, M.giftExponent))); }
+function drawGiftMenu() {
+  if (!CONFIG.giftMenu.enabled || G.phase === 'results') return;
+  const items = [
+    ['❤️', 'Ekrana dokun', 'Hızlan', '#ff5a7a'],
+    ['🌹', 'Gül', '+' + giftMeters(1) + ' m sprint', '#ff8a8a'],
+    ['🫰', 'Parmak Kalp', '+' + giftMeters(5) + ' m sprint', '#ffb36b'],
+    ['🎁', '10+ 💎 hediye', '+' + giftMeters(10) + ' m sprint', '#ffd23d']
+  ];
+  const y = SAFE_TOP + 132, h = 64, gap = 8, w = (1048 - gap * 3) / 4;
+  items.forEach(([ic, a, b, col], i) => {
+    const x = 16 + i * (w + gap);
+    panel(x, y, w, h, 0.82);
+    ctx.strokeStyle = col; ctx.lineWidth = 2; rrPath(ctx, x, y, w, h, 14); ctx.stroke();
+    txt(ic, x + 32, y + h / 2 + 1, 30, '#fff', 'center', { stroke: false });
+    setFont(19); txt(fitText(a, w - 66), x + 58, y + 22, 19, '#ffffff', 'left', { stroke: false });
+    setFont(19); txt(fitText(b, w - 66), x + 58, y + 45, 19, col, 'left', { stroke: false });
+  });
+}
 function drawChampions() {
   if (G.phase === 'results') return;
-  const x = 744, y = SAFE_TOP + 132, w = 320, top = STORE.top(5);
+  const x = 744, y = SAFE_TOP + 132 + (CONFIG.giftMenu.enabled ? 74 : 0), w = 320, top = STORE.top(5);
   const h = 46 + 5 * 29 + 110;
   panel(x, y, w, h, 0.7);
   txt('🏆 ŞAMPİYONLAR', x + 14, y + 22, 20, '#ffd56b', 'left', { stroke: false });
@@ -1271,6 +1293,7 @@ function render() {
   drawFx();
   drawTopBar();
   drawCaption2();
+  drawGiftMenu();
   drawRanking();
   drawChampions();
   drawCard();
