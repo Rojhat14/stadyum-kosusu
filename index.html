@@ -69,9 +69,9 @@ const CONFIG = {
     chat: 4,                     // yorum başına (kişi başına 3 sn'de bir)
     follow: 10,
     share: 15,
-    giftPerDiamond: 6,           // hediye: 6 × elmas^0,7 × adet
-    giftExponent: 0.7,
-    giftMax: 50                  // tek hediye en fazla bu kadar metre (yarışı tek başına belirlemesin)
+    giftPerDiamond: 30,          // hediye sprinti: 30 × elmas^0,55 × adet (Gül ≈ 30 m, 5 elmas ≈ 73 m, 10 elmas ≈ 106 m)
+    giftExponent: 0.55,
+    giftMax: 150                 // tek hediye en fazla bu kadar metre (yarışın %15'i; yarışı tek başına belirlemesin)
   },
   balance: {
     catchupMax: 0.4,             // lidere göre geride olanın beğenisi en fazla %40 fazla sayılır
@@ -478,7 +478,10 @@ function processEvent(e) {
     case 'gift': {
       // hediye: küçük ve sınırlı yardım; tutar gösterilmez, sadece teşekkür edilir
       const d = Math.max(1, e.diamonds);
-      boost(r, Math.min(M.giftMax, M.giftPerDiamond * Math.pow(d, M.giftExponent) * Math.min(e.count, 10)));
+      const gm = Math.min(M.giftMax, M.giftPerDiamond * Math.pow(d, M.giftExponent) * Math.min(e.count, 10));
+      if (P === 'lobby') { r.pending += gm; r.lastAct = G.t; }        // geri sayımda: yarış başlayınca avantaj
+      else boost(r, gm);
+      r.sprintUntil = Math.max(r.sprintUntil || 0, G.t) + clamp(gm / 8, 3, 12);
       // aynı kişinin seri hediyesi 4 sn içinde tek kart/anons
       if (G.t - (r.lastGiftShown || -99) > 4) {
         r.lastGiftShown = G.t;
@@ -503,7 +506,7 @@ function particle(p) { if (G.particles.length < CONFIG.spam.maxParticles) { p.ma
    ===================================================================== */
 function startRace() {
   G.phase = 'race'; G.phaseTime = 0; G.nextElim = G.t + CONFIG.elimination.graceSeconds + CONFIG.elimination.everySeconds;
-  for (const r of G.list) { r.lastAct = G.t; r.x = 0; }
+  for (const r of G.list) { r.lastAct = G.t; r.x = 0; if (r.pending > 0) r.sprintUntil = G.t + clamp(r.pending / 8, 3, 12); }
   SFX.gun(); SFX.cheer(0.6);
   SPEECH.clear();
   SPEECH.say('Ve start! ' + G.list.length + ' yarışçı ' + fmt(CONFIG.race.distance) + ' metre için koşuyor! Etkileşim vermeyen, en arkada kalan elenir!', 3);
@@ -1023,7 +1026,7 @@ function drawTags() {
   if (G.phase === 'results') return;
   const [a, rk] = rankOf();
   const show = new Set(a.slice(0, 14).map(r => r.key));
-  for (const r of a) if (r.warn || G.t - r.joinedAt < 5) show.add(r.key);
+  for (const r of a) if (r.warn || G.t - r.joinedAt < 5 || (r.sprintUntil || 0) > G.t) show.add(r.key);
   if (G.camOverride && G.camOverride.key) show.add(G.camOverride.key);
   if (G.shot && G.shot.key) show.add(G.shot.key);
   const items = [];
@@ -1039,8 +1042,9 @@ function drawTags() {
   for (const [r, [x, y]] of items) {
     const n = rk.get(r.key) || '';
     setFont(20);
-    const name = fitText(r.name, 160), tw = ctx.measureText(name).width, bw = 30, w = tw + bw + 22;
-    ctx.fillStyle = r.warn ? (Math.sin(G.t * 14) > 0 ? 'rgba(210,30,30,0.96)' : 'rgba(110,10,10,0.96)') : 'rgba(255,255,255,0.94)';
+    const sprint = (r.sprintUntil || 0) > G.t;
+    const name = (sprint ? '🚀 ' : '') + fitText(r.name, 160), tw = ctx.measureText(name).width, bw = 30, w = tw + bw + 22;
+    ctx.fillStyle = r.warn ? (Math.sin(G.t * 14) > 0 ? 'rgba(210,30,30,0.96)' : 'rgba(110,10,10,0.96)') : sprint ? (Math.sin(G.t * 8) > -0.3 ? '#ffd23d' : '#ffe98a') : 'rgba(255,255,255,0.94)';
     rrPath(ctx, x - w / 2, y - 15, w, 30, 15); ctx.fill();
     ctx.fillStyle = n === 1 ? '#ffb300' : r.shirt === '#ffffff' ? '#9aa3b5' : r.shirt;
     ctx.beginPath(); ctx.arc(x - w / 2 + 15, y, 12, 0, TAU); ctx.fill();
