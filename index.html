@@ -356,7 +356,7 @@ const G = {
   joinBuf: [], joinFlushAt: 0, stepAcc: 0, flash: 0, lastBeep: -1
 };
 const queue = [], pendingLikes = new Map();
-G.recentJoins = [];
+G.recentJoins = []; G.floats = [];
 const active = () => G.list.filter(r => !r.out);
 function leader() { let b = null; for (const r of G.list) if (!r.out && (!b || r.x > b.x)) b = r; return b; }
 
@@ -482,12 +482,13 @@ function processEvent(e) {
       if (P === 'lobby') { r.pending += gm; r.lastAct = G.t; }        // geri sayımda: yarış başlayınca avantaj
       else boost(r, gm);
       r.sprintUntil = Math.max(r.sprintUntil || 0, G.t) + clamp(gm / 8, 3, 12);
+      G.floats.push({ key: r.key, text: '+' + Math.round(gm) + ' m 🚀', born: G.t }); if (G.floats.length > 20) G.floats.shift();
       // aynı kişinin seri hediyesi 4 sn içinde tek kart/anons
       if (G.t - (r.lastGiftShown || -99) > 4) {
         r.lastGiftShown = G.t;
-        toast({ kind: 'gift', name: e.name, shirt: r.shirt });
+        toast({ kind: 'gift', name: e.name, shirt: r.shirt, m: Math.round(gm) });
         SFX.thanks();
-        SPEECH.say(speakName(e.raw) + ' hediye gönderdi! Çok teşekkürler!', 2, 'gift', 3);
+        SPEECH.say(speakName(e.raw) + ' hediye gönderdi ve sprint atıyor! Çok teşekkürler!', 2, 'gift', 3);
         camEvent('focus', r.key, 3.5, 2);
       }
       for (let i = 0; i < 14; i++) particle({ star: true, wx: r.x, lane: r.lane, dx: rand(-30, 30), dy: rand(-110, -40), vx: rand(-60, 60), vy: rand(-80, -20), life: rand(0.6, 1.1), color: pick(['#ffe27a', '#fff3b0']) });
@@ -634,7 +635,7 @@ function update(dt) {
     if (joins.length >= 3 && G.toasts[0].kind === 'join') {
       G.toasts = G.toasts.filter(t => t.kind !== 'join');
       G.toast = { kind: 'group', names: joins.map(j => j.name), title: '+' + joins.length + ' YENİ YARIŞÇI!', born: G.t, dur: 2.8 };
-    } else G.toast = { ...G.toasts.shift(), born: G.t, dur: 2.3 };
+    } else { const nt = G.toasts.shift(); G.toast = { ...nt, born: G.t, dur: nt.kind === 'gift' ? 3.8 : 2.3 }; }
   }
   if (G.tick && G.t - G.tick.born > 3) G.tick = null;
   if (!G.tick && G.ticker.length) G.tick = { text: G.ticker.shift(), born: G.t };
@@ -924,7 +925,7 @@ function update3D(dt) {
   updateCamera3D(dt);
 }
 const camPos = V3(-15, 7.5, TRACK_W + 13), camLook = V3(-1, 0.2, TRACK_W * 0.4);
-const _cp = V3(), _cl = V3();
+const _cp = V3(), _cl = V3(), camFrom = { pos: V3(-15, 7.5, TRACK_W + 13), look: V3(-1, 0.2, TRACK_W * 0.4) };
 /* Kamera rejisi: 8 sn'de bir açı değişir; olaylarda (katılım, hediye, eleme) kısa yakın çekim.
    Uzak hedefe geçerken boş pistin üstünden kaymak yerine doğrudan kesme yapılır. */
 const SHOTS_RACE = ['pack', 'spotlight', 'front', 'rear', 'spotlight', 'side', 'overhead', 'spotlight'];
@@ -1003,8 +1004,15 @@ function updateCamera3D(dt) {
   if (!shotPose(mode, key, [_cp, _cl])) shotPose('pack', null, [_cp, _cl]);
   const changed = mode + key !== G.lastShotId;
   G.lastShotId = mode + key;
-  if (changed && _cl.distanceTo(camLook) > 20) { camPos.copy(_cp); camLook.copy(_cl); }      // doğrudan kesme
-  else { const k = 1 - Math.exp(-dt * (changed ? 3.5 : 5)); camPos.lerp(_cp, k); camLook.lerp(_cl, k); }
+  // hedef her karede yeniden hesaplanır ve kamera ona tam kilitlenir (hızlı koşucu kadrajdan kaçmaz);
+  // açı değişiminde 0,8 sn yumuşak geçiş, uzak hedefe ise doğrudan kesme
+  if (changed) {
+    if (_cl.distanceTo(camLook) > 20) { camFrom.pos.copy(_cp); camFrom.look.copy(_cl); G.camBlend = 1; }
+    else { camFrom.pos.copy(camPos); camFrom.look.copy(camLook); G.camBlend = 0; }
+  }
+  G.camBlend = Math.min(1, (G.camBlend == null ? 1 : G.camBlend) + dt / 0.8);
+  const k = easeOut(G.camBlend);
+  camPos.lerpVectors(camFrom.pos, _cp, k); camLook.lerpVectors(camFrom.look, _cl, k);
   camera.position.copy(camPos); camera.lookAt(camLook);
 }
 const _pv = V3();
@@ -1136,7 +1144,8 @@ function drawCard() {
     const gift = t.kind === 'gift';
     txt(out ? 'ELENDİ' : gift ? '🎁 HEDİYE GÖNDERDİ' : t.late ? 'YARIŞA KATILDI · arkadan geliyor' : 'YARIŞÇIMIZI TANIYALIM', x + 104, y + 26, 18, out ? '#ffb3ad' : '#ffd56b', 'left', { stroke: false });
     setFont(38); txt(fitText(t.name, w - 140), x + 104, y + 62, 38, '#ffffff', 'left', { lw: 5 });
-    txt(out ? 'Sıradaki yarışta tekrar dene!' : gift ? 'Çok teşekkürler! 💛' : 'Start\'a hazır!', x + w - 20, y + 86, 18, gift ? '#ffe9a8' : '#cfd6e6', 'right', { stroke: false });
+    if (gift) txt('🚀 +' + (t.m || 30) + ' m SPRİNT! · Çok teşekkürler 💛', x + w - 20, y + 30, 24, '#ffd23d', 'right', { lw: 4 });
+    else txt(out ? 'Sıradaki yarışta tekrar dene!' : 'Start\'a hazır!', x + w - 20, y + 86, 18, '#cfd6e6', 'right', { stroke: false });
   }
   ctx.restore();
 }
@@ -1196,6 +1205,18 @@ function drawResults3() {
   ctx.restore();
 }
 function drawFx() {
+  // hediye sprinti: koşucunun üstünde yükselen "+30 m 🚀"
+  for (let i = G.floats.length - 1; i >= 0; i--) {
+    const f = G.floats[i], age = G.t - f.born;
+    if (age > 3.2) { G.floats.splice(i, 1); continue; }
+    const r = G.runners.get(f.key); if (!r || r.out) continue;
+    const sp = project(runnerX(r), 1.9, laneZ(r.lane, r.off)); if (!sp) continue;
+    ctx.globalAlpha = clamp((3.2 - age) / 0.5, 0, 1);
+    const sc = age < 0.2 ? 0.6 + 2 * age : 1;
+    ctx.save(); ctx.translate(sp[0], sp[1] - 70 - age * 30); ctx.scale(sc, sc);
+    txt(f.text, 0, 0, 40, '#ffd23d', 'center', { lw: 8, sc: 'rgba(60,30,0,0.9)' });
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
   for (const p of G.particles) {
     const a = clamp(p.life / p.max, 0, 1);
     ctx.globalAlpha = a; ctx.fillStyle = p.color;
