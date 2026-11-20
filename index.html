@@ -485,7 +485,7 @@ function processEvent(e) {
     case 'share': boost(r, M.share); ticker('📣 ' + e.name + ' yayını paylaştı!'); break;
   }
 }
-function toast(o) { G.toasts.push(o); if (G.toasts.length > 30) G.toasts.shift(); }
+function toast(o) { if (o.kind === 'gift' || o.kind === 'out') G.toasts.unshift(o); else G.toasts.push(o); if (G.toasts.length > 30) G.toasts.pop(); }
 function ticker(text) { G.ticker.push(text); if (G.ticker.length > 10) G.ticker.shift(); }
 function particle(p) { if (G.particles.length < CONFIG.spam.maxParticles) { p.max = p.life; G.particles.push(p); } }
 
